@@ -1,6 +1,8 @@
 package edu.buffalo.cse.cse486586.simpledht;
 
 import java.io.BufferedReader;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -14,6 +16,7 @@ import java.util.Formatter;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Semaphore;
 
 import android.content.ContentProvider;
 import android.content.ContentValues;
@@ -37,7 +40,12 @@ public class SimpleDhtProvider extends ContentProvider {
     private static String JOIN_ACCEPT = "Joined";
     private static String PREV_UPDATE = "Prev_Update";
     private static String INSERT_KEY = "InsertKey";
+    private static String QUERY_KEY = "QueryKey";
+    private static String QUERY_RESULT = "QueryResult";
     private static String delim = "`";
+    Semaphore waitForQuery = new Semaphore(0);
+    boolean flag = false;
+    private String queryResult;
 
     public SimpleDhtProvider() {
         super();
@@ -66,10 +74,10 @@ public class SimpleDhtProvider extends ContentProvider {
             Map.Entry<String, Object> keypair = (Map.Entry<String, Object>) start.next();
             args[i++] = (String) keypair.getValue();
         }
-//        Log.v("insert", values.toString() + " " + args[0] + " " + args[1]);
+        Log.v("insert", values.toString());
 
         String insDht = INSERT_KEY + delim + args[1] + delim + args[0];
-        new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, insDht, String.valueOf(myPort));
+        new ClientTask().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, insDht, String.valueOf(myPort));
 
         return null;
     }
@@ -113,7 +121,19 @@ public class SimpleDhtProvider extends ContentProvider {
     @Override
     public Cursor query(Uri uri, String[] projection, String selection, String[] selectionArgs,
                         String sortOrder) {
-        // TODO Auto-generated method stub
+
+        String queryDht = QUERY_KEY + delim + selection + delim + myPort;
+        new ClientTask().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, queryDht, String.valueOf(myPort));
+        Log.v("Query Result", "Result");
+        flag = false;
+        while(!flag){;
+        }
+//        try {
+//            waitForQuery.acquire();
+//        } catch (InterruptedException e) {
+//            e.printStackTrace();
+//        }
+        Log.v("QueryResult", queryResult + " " + selection);
         return null;
     }
 
@@ -162,6 +182,11 @@ public class SimpleDhtProvider extends ContentProvider {
                         prevNode = Integer.parseInt(args[1]);
                     } else if (args[0].equals(INSERT_KEY)) {
                         handleInsert(args[1], args[2]);
+                    } else if (args[0].equals(QUERY_KEY)) {
+                        queryKey(args[1], args[2]);
+                    } else if (args[0].equals(QUERY_RESULT)) {
+                        queryResult = args[1];
+                        flag = true;
                     }
                     //TODO received some message change to serializable object?
 
@@ -179,14 +204,14 @@ public class SimpleDhtProvider extends ContentProvider {
         }
     }
 
-    private void handleInsert(String key, String value) {
+    private void queryKey(String key, String port) {
         String hash = genHash(key);
         String nextID = genHash(String.valueOf(nextNode / 2));
-        Log.v(TAG, nextID);
         if (greaterThan(hash, nodeID) && !greaterThan(hash, nextID)) {
-            Log.v("Insert", "Insert in node");
-            localInsert(key, value);
-        }else if ((greaterThan(hash, nodeID) &&
+            Log.v("Query", "Query found");
+
+            localQuery(key, port);
+        }/*else if ((greaterThan(hash, nodeID) &&
                 greaterThan(hash, nextID)) || !greaterThan(hash,nodeID)) {
             if (greaterThan(nextID, nodeID)) {
                 String insDht = INSERT_KEY + delim + key + delim + value;
@@ -195,11 +220,69 @@ public class SimpleDhtProvider extends ContentProvider {
                 Log.v("Insert", "err");
                 localInsert(key, value);
             }
+        }*/ else if (!greaterThan(nextID, nodeID)) {
+            if (greaterThan(hash, nodeID) || !greaterThan(hash, nextID)) {
+                //local query
+                localQuery(key, port);
+            } else {
+                String insDht = QUERY_KEY + delim + key + delim + port;
+                new ClientTask().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, insDht, String.valueOf(nextNode));
+            }
+        } else {
+            String insDht = QUERY_KEY + delim + key + delim + port;
+            new ClientTask().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, insDht, String.valueOf(nextNode));
+        }
+
+    }
+
+    private void localQuery(String key, String port) {
+        FileInputStream key_retrieve = null;
+        try {
+            key_retrieve = getContext().openFileInput(key);
+            if (key_retrieve == null)
+                return;
+            BufferedReader buf = new BufferedReader(new InputStreamReader(key_retrieve));
+            String message = buf.readLine();
+            Log.v("query", "key " + key + " value " + message);
+            String queryResult = QUERY_RESULT + delim + message;
+            new ClientTask().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, queryResult, String.valueOf(port));
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void handleInsert(String key, String value) {
+        String hash = genHash(key);
+        String nextID = genHash(String.valueOf(nextNode / 2));
+        if (greaterThan(hash, nodeID) && !greaterThan(hash, nextID)) {
+            Log.v("Insert", "Insert in node");
+            localInsert(key, value);
+        }/*else if ((greaterThan(hash, nodeID) &&
+                greaterThan(hash, nextID)) || !greaterThan(hash,nodeID)) {
+            if (greaterThan(nextID, nodeID)) {
+                String insDht = INSERT_KEY + delim + key + delim + value;
+                new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, insDht, String.valueOf(nextNode));
+            } else {
+                Log.v("Insert", "err");
+                localInsert(key, value);
+            }
+        }*/ else if (!greaterThan(nextID, nodeID)) {
+            if (greaterThan(hash, nodeID) || !greaterThan(hash, nextID)) {
+                localInsert(key, value);
+            } else {
+                String insDht = INSERT_KEY + delim + key + delim + value;
+                new ClientTask().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, insDht, String.valueOf(nextNode));
+            }
+        } else {
+            String insDht = INSERT_KEY + delim + key + delim + value;
+            new ClientTask().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, insDht, String.valueOf(nextNode));
         }
     }
 
     private void localInsert(String key, String value) {
-        Log.v("Insert", key + " " +  value);
+        Log.v("Insert", key + " " + value);
         FileOutputStream key_store = null;
         try {
             key_store = getContext().openFileOutput(key, Context.MODE_PRIVATE);
@@ -220,7 +303,7 @@ public class SimpleDhtProvider extends ContentProvider {
             nextNode = prevNode;
             return;
         }
-        String nextID = genHash(String.valueOf(nextNode/2));
+        String nextID = genHash(String.valueOf(nextNode / 2));
         if (greaterThan(hash, nodeID) && !greaterThan(hash, nextID)) {
             Log.v(TAG, "Added " + port + " " + hash);
             String joined = JOIN_ACCEPT + delim + myPort + delim + nextNode;
