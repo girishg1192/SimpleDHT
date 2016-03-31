@@ -187,8 +187,8 @@ public class SimpleDhtProvider extends ContentProvider {
             Log.v("Insert", "Insert in node");
             localInsert(key, value);
         }else if ((greaterThan(hash, nodeID) &&
-                greaterThan(hash, genHash(String.valueOf(nextNode / 2))))) {
-            if (greaterThan(genHash(String.valueOf(nextNode / 2)), nodeID)) {
+                greaterThan(hash, nextID)) || !greaterThan(hash,nodeID)) {
+            if (greaterThan(nextID, nodeID)) {
                 String insDht = INSERT_KEY + delim + key + delim + value;
                 new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, insDht, String.valueOf(nextNode));
             } else {
@@ -220,8 +220,8 @@ public class SimpleDhtProvider extends ContentProvider {
             nextNode = prevNode;
             return;
         }
-//        String nextID = genHash(String.valueOf(nextNode/2))
-        if (greaterThan(hash, nodeID) && !greaterThan(hash, genHash(String.valueOf(nextNode / 2)))) {
+        String nextID = genHash(String.valueOf(nextNode/2));
+        if (greaterThan(hash, nodeID) && !greaterThan(hash, nextID)) {
             Log.v(TAG, "Added " + port + " " + hash);
             String joined = JOIN_ACCEPT + delim + myPort + delim + nextNode;
             new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, joined, String.valueOf(port));
@@ -231,8 +231,8 @@ public class SimpleDhtProvider extends ContentProvider {
             nextNode = Integer.parseInt(port);
             nextNode = Integer.parseInt(port);
         } else if ((greaterThan(hash, nodeID) &&
-                greaterThan(hash, genHash(String.valueOf(nextNode / 2)))) || !greaterThan(hash, nodeID)) {
-            if (greaterThan(genHash(String.valueOf(nextNode / 2)), nodeID)) {
+                greaterThan(hash, nextID)) || !greaterThan(hash, nodeID)) {
+            if (greaterThan(nextID, nodeID)) {
                 Log.v(TAG, "Pass along");
                 String joinRequest = JOIN_REQUEST + delim + hash + delim + port;
                 new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, joinRequest, String.valueOf(nextNode));
