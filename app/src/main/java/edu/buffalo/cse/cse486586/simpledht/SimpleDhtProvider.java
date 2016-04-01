@@ -45,6 +45,8 @@ public class SimpleDhtProvider extends ContentProvider {
     private static String QUERY_KEY = "QueryKey";
     private static String QUERY_RESULT = "QueryResult";
     private static String QUERY_ALL = "QueryAll";
+    private static String DELETE_ALL = "DeleteAll";
+    private static String DELETE_KEY = "DeleteKey";
 
     private static String delim = "`";
     Semaphore waitForQuery = new Semaphore(0);
@@ -58,7 +60,27 @@ public class SimpleDhtProvider extends ContentProvider {
     @Override
     public int delete(Uri uri, String selection, String[] selectionArgs) {
         // TODO Auto-generated method stub
-        return 0;
+        if (selection.equals("@")) {
+            Log.v("DHTDel", "Local delete");
+            deleteLocal();
+        } else if (selection.equals("*")){
+            String queryAllDht = DELETE_ALL + delim + myPort;
+            sendMessage(queryAllDht, String.valueOf(myPort));
+        }
+        else {
+            String queryDht = DELETE_KEY + delim + selection;
+            sendMessage(queryDht, String.valueOf(myPort));
+            Log.v("Query Result", queryDht);
+        }
+        return 0; //TODO return what?
+    }
+
+    private void deleteLocal() {
+        File dir = getContext().getFilesDir();
+        File[] deleteKeys = dir.listFiles();
+        for(File del:deleteKeys){
+            del.delete();
+        }
     }
 
     @Override
@@ -127,10 +149,14 @@ public class SimpleDhtProvider extends ContentProvider {
     public Cursor query(Uri uri, String[] projection, String selection, String[] selectionArgs,
                         String sortOrder) {
 
-        MatrixHelper cursorBuilder = null;
+        MatrixHelper cursorBuilder;
         if (selection.equals("@")) {
             Log.v("DHTQuery", "Local dump");
-            cursorBuilder = new MatrixHelper(localQueryAll());
+            String localValues = localQueryAll();
+            if(localValues!=null)
+                cursorBuilder = new MatrixHelper(localValues);
+            else
+                return null;
         } else if (selection.equals("*")){
             String queryAllDht = QUERY_ALL + delim + myPort;
             sendMessage(queryAllDht, String.valueOf(myPort));
@@ -139,6 +165,10 @@ public class SimpleDhtProvider extends ContentProvider {
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
+            if(queryResult == null){
+                return null;
+            }
+            Log.v("QUERY", queryResult + "|" + queryResult.length());
             cursorBuilder = new MatrixHelper(queryResult);
         }
         else {
@@ -151,7 +181,7 @@ public class SimpleDhtProvider extends ContentProvider {
                 e.printStackTrace();
             }
             Log.v("QueryResult", queryResult + " " + selection);
-            if (queryResult == null)
+            if (queryResult == "")
                 return null;
             cursorBuilder = new MatrixHelper(selection + delim + queryResult);
         }
@@ -211,6 +241,12 @@ public class SimpleDhtProvider extends ContentProvider {
                         queryResult = message;
                         waitForQuery.release();
                         flag = true;
+                    } else if(args[0].equals(DELETE_ALL)){
+                        deleteLocal();
+                        if(nextNode!=Integer.parseInt(args[1]))
+                            sendMessage(message, String.valueOf(nextNode));
+                    } else if(args[0].equals(DELETE_KEY)){
+                        deleteKey(args[1]);
                     }
                     //TODO received some message change to serializable object?
                     clientHook.close();
@@ -229,8 +265,11 @@ public class SimpleDhtProvider extends ContentProvider {
 
     private void queryAll(String message) {
         String[] args = message.split(delim);
-        if(nextNode == prevNode){
-            String result = QUERY_RESULT + delim + localQueryAll();
+        if(nextNode == prevNode && prevNode==myPort){
+            String result = message;
+            String localValues = localQueryAll();
+            if(localValues!=null)
+             result = QUERY_RESULT + delim + localQueryAll();
             sendMessage(result, args[1]);
             return;
         }
@@ -240,20 +279,26 @@ public class SimpleDhtProvider extends ContentProvider {
            message = message + delim + localValues.substring(0, localValues.lastIndexOf(delim));
 
         if(nextNode == Integer.parseInt(args[1])) {
-            int cutString = message.indexOf(delim, message.indexOf(delim)+1);
-            message = QUERY_RESULT + message.substring(cutString);
+            message = message.substring(message.indexOf(delim)+1);
+            if(message.indexOf(delim)>=0){
+                message = message.substring(message.indexOf(delim)+1);
+            }else{
+                message = "";
+            }
+            message = QUERY_RESULT + delim + message;
         }
         sendMessage(message, String.valueOf(nextNode));
     }
 
     private void queryKey(String key, String port) {
         String hash = genHash(key);
-        if (nextNode == prevNode) {
+        if (nextNode == prevNode && nextNode == myPort) {
             localQuery(key, port);
             return;
         }
 //        String nextID = genHash(String.valueOf(nextNode/2));
         String prevID = genHash(String.valueOf(prevNode / 2));
+
         if (greaterThan(hash, prevID) && !greaterThan(hash, nodeID)) {
             Log.v("Query", "Query found");
             localQuery(key, port);
@@ -269,6 +314,16 @@ public class SimpleDhtProvider extends ContentProvider {
         } else {
             String insDht = QUERY_KEY + delim + key + delim + port;
             sendMessage(insDht, String.valueOf(nextNode));
+        }
+    }
+    private void deleteKey(String key){
+        if(isInHashSpace(genHash(key))){
+            //delete file
+            File del = new File(key);
+            del.delete();
+        }else{
+            String delKey = DELETE_KEY + delim + key;
+            sendMessage(delKey, String.valueOf(nextNode));
         }
     }
 
@@ -309,7 +364,6 @@ public class SimpleDhtProvider extends ContentProvider {
                 else {
                     BufferedReader buf = new BufferedReader(new InputStreamReader(key_retrieve));
                     message = buf.readLine();
-//                    queryAll.addRow(file, message);
                     if(queryAll == null)
                         queryAll = file + delim + message + delim;
                     else
@@ -379,13 +433,9 @@ public class SimpleDhtProvider extends ContentProvider {
             new ClientTask().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, updateSuccessor, String.valueOf(nextNode));
             nextNode = Integer.parseInt(port);
             nextNode = Integer.parseInt(port);
-        } else if ((greaterThan(hash, nodeID) &&
-                greaterThan(hash, nextID)) || !greaterThan(hash, nodeID)) {
-            if (greaterThan(nextID, nodeID)) {
-                Log.v(TAG, "Pass along");
-                String joinRequest = JOIN_REQUEST + delim + hash + delim + port;
-                new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, joinRequest, String.valueOf(nextNode));
-            } else {
+        } else if(!greaterThan(nextID, nodeID)) {
+            if((greaterThan(hash, nodeID) && greaterThan(hash, nextID))
+                    || !greaterThan(hash, nodeID) && !greaterThan(hash, nextID)){
                 Log.v(TAG, "Accept connection " + port);
                 String joined = JOIN_ACCEPT + delim + myPort + delim + nextNode;
                 new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, joined, String.valueOf(port));
@@ -393,7 +443,15 @@ public class SimpleDhtProvider extends ContentProvider {
                 Log.v(TAG, "Predecessor update" + port);
                 new ClientTask().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, updateSuccessor, String.valueOf(nextNode));
                 nextNode = Integer.parseInt(port);
+            } else {
+                Log.v(TAG, "Pass along");
+                String joinRequest = JOIN_REQUEST + delim + hash + delim + port;
+                new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, joinRequest, String.valueOf(nextNode));
             }
+        } else{
+            Log.v(TAG, "Pass along");
+            String joinRequest = JOIN_REQUEST + delim + hash + delim + port;
+            new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, joinRequest, String.valueOf(nextNode));
         }
     }
 
@@ -435,6 +493,22 @@ public class SimpleDhtProvider extends ContentProvider {
     private boolean greaterThan(String first, String second) {
         //Returns true if first is greater than second
         return (first.compareTo(second) > 0);
+    }
+    private boolean isInHashSpace(String hash){
+        String prevID = genHash(String.valueOf(prevNode / 2));
+
+        if (greaterThan(hash, prevID) && !greaterThan(hash, nodeID)) {
+            return true;
+        } else if (!greaterThan(nodeID, prevID)) {
+            if ((!greaterThan(hash, nodeID) && greaterThan(prevID, hash))
+                    || (greaterThan(hash, prevID)) && greaterThan(hash, nodeID)) {
+                return true;
+            } else {
+                return false;
+            }
+        } else {
+            return false;
+        }
     }
 
 }
