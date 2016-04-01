@@ -22,6 +22,9 @@ public class SimpleDhtActivity extends Activity {
         findViewById(R.id.button2).setOnClickListener(
                 new OnGDumpListener(tv, getContentResolver())
         );
+        findViewById(R.id.delButton).setOnClickListener(
+                new onDelListener(tv, getContentResolver())
+        );
     }
 
     @Override

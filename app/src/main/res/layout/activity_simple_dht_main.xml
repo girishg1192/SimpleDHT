@@ -40,4 +40,12 @@
         android:maxLines="17"
         android:scrollbars="vertical" />
 
+    <Button
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="delete stuff"
+        android:id="@+id/delButton"
+        android:layout_alignParentBottom="true"
+        android:layout_centerHorizontal="true" />
+
 </RelativeLayout>
