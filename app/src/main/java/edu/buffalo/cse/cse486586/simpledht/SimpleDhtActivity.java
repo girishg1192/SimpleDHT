@@ -1,11 +1,8 @@
 package edu.buffalo.cse.cse486586.simpledht;
 
-import android.content.Context;
 import android.os.Bundle;
 import android.app.Activity;
-import android.telephony.TelephonyManager;
 import android.text.method.ScrollingMovementMethod;
-import android.util.Log;
 import android.view.Menu;
 import android.widget.TextView;
 
@@ -20,7 +17,11 @@ public class SimpleDhtActivity extends Activity {
         tv.setMovementMethod(new ScrollingMovementMethod());
         findViewById(R.id.button3).setOnClickListener(
                 new OnTestClickListener(tv, getContentResolver()));
-
+        findViewById(R.id.button1).setOnClickListener(
+                new OnLDumpListener(tv, getContentResolver()));
+        findViewById(R.id.button2).setOnClickListener(
+                new OnGDumpListener(tv, getContentResolver())
+        );
     }
 
     @Override
