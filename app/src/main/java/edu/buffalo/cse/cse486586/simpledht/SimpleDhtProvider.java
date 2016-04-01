@@ -79,6 +79,7 @@ public class SimpleDhtProvider extends ContentProvider {
         File dir = getContext().getFilesDir();
         File[] deleteKeys = dir.listFiles();
         for(File del:deleteKeys){
+            Log.v("DeleteLocal", del.getName());
             del.delete();
         }
     }
@@ -120,6 +121,7 @@ public class SimpleDhtProvider extends ContentProvider {
         myPort = (Integer.parseInt(portStr) * 2);
         nodeID = genHash(String.valueOf(myPort / 2));
         Log.v(TAG, "PORT: " + myPort);
+
 
         prevNode = nextNode = myPort;
 
@@ -165,7 +167,7 @@ public class SimpleDhtProvider extends ContentProvider {
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
-            if(queryResult == null){
+            if(queryResult.length()==0){
                 return null;
             }
             Log.v("QUERY", queryResult + "|" + queryResult.length());
@@ -270,6 +272,8 @@ public class SimpleDhtProvider extends ContentProvider {
             String localValues = localQueryAll();
             if(localValues!=null)
              result = QUERY_RESULT + delim + localQueryAll();
+            else
+             result = QUERY_RESULT + delim + "";
             sendMessage(result, args[1]);
             return;
         }
@@ -319,7 +323,10 @@ public class SimpleDhtProvider extends ContentProvider {
     private void deleteKey(String key){
         if(isInHashSpace(genHash(key))){
             //delete file
-            File del = new File(key);
+
+            Log.v("Delete", "Delete local file " + key);
+
+            File del = new File(getContext().getFilesDir().getAbsolutePath() + "/" + key);
             del.delete();
         }else{
             String delKey = DELETE_KEY + delim + key;
