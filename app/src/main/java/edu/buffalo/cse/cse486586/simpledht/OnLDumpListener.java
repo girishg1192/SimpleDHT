@@ -38,6 +38,10 @@ public class OnLDumpListener implements View.OnClickListener {
         protected Void doInBackground(Void... voids) {
             Cursor resultCursor = mContentResolver.query(mUri, null,
                     "@", null, null);
+            if(resultCursor==null) {
+                publishProgress("Null!!");
+                return null;
+            }
             int keyIndex = resultCursor.getColumnIndex(KEY_FIELD);
             int valueIndex = resultCursor.getColumnIndex(VALUE_FIELD);
 
