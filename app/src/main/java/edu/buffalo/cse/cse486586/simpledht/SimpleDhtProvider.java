@@ -77,7 +77,9 @@ public class SimpleDhtProvider extends ContentProvider {
         Log.v("insert", values.toString());
 
         String insDht = INSERT_KEY + delim + args[1] + delim + args[0];
-        new ClientTask().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, insDht, String.valueOf(myPort));
+//        new ClientTask().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, insDht, String.valueOf(myPort));
+        sendMessage(insDht, String.valueOf(myPort));
+
 
         return null;
     }
@@ -123,18 +125,22 @@ public class SimpleDhtProvider extends ContentProvider {
                         String sortOrder) {
 
         String queryDht = QUERY_KEY + delim + selection + delim + myPort;
-        new ClientTask().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, queryDht, String.valueOf(myPort));
-        Log.v("Query Result", "Result");
-        flag = false;
-        while(!flag){;
+//        new ClientTask().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, queryDht, String.valueOf(myPort));
+        sendMessage(queryDht, String.valueOf(myPort));
+        Log.v("Query Result", queryDht);
+
+        try {
+            waitForQuery.acquire();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
         }
-//        try {
-//            waitForQuery.acquire();
-//        } catch (InterruptedException e) {
-//            e.printStackTrace();
-//        }
         Log.v("QueryResult", queryResult + " " + selection);
-        return null;
+        if (queryResult == null)
+            return null;
+        //TODO add more rows
+        MatrixHelper cursorBuilder = new MatrixHelper(selection + " " + queryResult);
+
+        return cursorBuilder.cursor;
     }
 
     @Override
@@ -186,6 +192,7 @@ public class SimpleDhtProvider extends ContentProvider {
                         queryKey(args[1], args[2]);
                     } else if (args[0].equals(QUERY_RESULT)) {
                         queryResult = args[1];
+                        waitForQuery.release();
                         flag = true;
                     }
                     //TODO received some message change to serializable object?
@@ -226,11 +233,13 @@ public class SimpleDhtProvider extends ContentProvider {
                 localQuery(key, port);
             } else {
                 String insDht = QUERY_KEY + delim + key + delim + port;
-                new ClientTask().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, insDht, String.valueOf(nextNode));
+//                new ClientTask().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, insDht, String.valueOf(nextNode));
+                sendMessage(insDht, String.valueOf(nextNode));
             }
         } else {
             String insDht = QUERY_KEY + delim + key + delim + port;
-            new ClientTask().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, insDht, String.valueOf(nextNode));
+//            new ClientTask().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, insDht, String.valueOf(nextNode));
+            sendMessage(insDht, String.valueOf(nextNode));
         }
 
     }
@@ -238,14 +247,18 @@ public class SimpleDhtProvider extends ContentProvider {
     private void localQuery(String key, String port) {
         FileInputStream key_retrieve = null;
         try {
+            String message;
             key_retrieve = getContext().openFileInput(key);
             if (key_retrieve == null)
-                return;
-            BufferedReader buf = new BufferedReader(new InputStreamReader(key_retrieve));
-            String message = buf.readLine();
+                message = null;
+            else {
+                BufferedReader buf = new BufferedReader(new InputStreamReader(key_retrieve));
+                message = buf.readLine();
+            }
             Log.v("query", "key " + key + " value " + message);
             String queryResult = QUERY_RESULT + delim + message;
-            new ClientTask().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, queryResult, String.valueOf(port));
+//            new ClientTask().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, queryResult, String.valueOf(port));
+            sendMessage(queryResult, String.valueOf(port));
         } catch (FileNotFoundException e) {
             e.printStackTrace();
         } catch (IOException e) {
@@ -256,6 +269,7 @@ public class SimpleDhtProvider extends ContentProvider {
     private void handleInsert(String key, String value) {
         String hash = genHash(key);
         String nextID = genHash(String.valueOf(nextNode / 2));
+        String prevID = genHash(String.valueOf(prevNode / 2));
         if (greaterThan(hash, nodeID) && !greaterThan(hash, nextID)) {
             Log.v("Insert", "Insert in node");
             localInsert(key, value);
@@ -273,11 +287,11 @@ public class SimpleDhtProvider extends ContentProvider {
                 localInsert(key, value);
             } else {
                 String insDht = INSERT_KEY + delim + key + delim + value;
-                new ClientTask().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, insDht, String.valueOf(nextNode));
+                sendMessage(insDht, String.valueOf(nextNode));
             }
         } else {
             String insDht = INSERT_KEY + delim + key + delim + value;
-            new ClientTask().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, insDht, String.valueOf(nextNode));
+            sendMessage(insDht, String.valueOf(nextNode));
         }
     }
 
@@ -349,6 +363,22 @@ public class SimpleDhtProvider extends ContentProvider {
             }
             return null;
         }
+    }
+
+    private void sendMessage(String message, String port) {
+        try {
+            Socket join = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
+                    Integer.parseInt(port));
+            Log.v(TAG, "Client sends: " + message + " to " + port);
+            OutputStream out = (join.getOutputStream());
+            byte[] byteStream = message.getBytes("UTF-8");
+//                Log.e(TAG, "Sending bytes " +byteStream);
+            out.write(byteStream);
+            join.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return;
     }
 
     private boolean greaterThan(String first, String second) {
